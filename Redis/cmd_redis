@@ -1,0 +1,2 @@
+root@idc-hqq-dev159:/var/log/redis# systemctl start redis-server
+root@idc-hqq-dev159:/var/log/redis# systemctl status redis-server

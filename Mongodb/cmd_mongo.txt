@@ -1,0 +1,17 @@
+to check the state of mongodb,2 command as below:
+
+	sudo systemctl enable mongod
+
+	sudo systemctl status mongod
+
+to stop mongod process:
+
+	sudo systemctl stop mongod
+
+restart:
+	
+	sudo systemctl restart mongod
+
+Start a mongosh session with default port 27017
+
+	mongosh

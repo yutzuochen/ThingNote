@@ -1,0 +1,9 @@
+* highlight line:
+    add to user setting(json) as below:
+
+        [
+            "highlightLine.borderStyle": "outset",
+            "highlightLine.borderWidth": "2px",
+            "highlightLine.borderColor": "white",
+        ]
+
