@@ -1,0 +1,47 @@
+db.employees.insertOne({ 
+    firstName: "John",
+    lastName: "King",
+    email: "john.king@abc.com"
+})
+
+
+(specify _id field)
+
+db.employees.insertOne({ 
+    _id:"1",
+    firstName: "John",
+    lastName: "King",
+    email: "john.king@abc.com"
+})
+
+[Note]while adding your custom value to _id field, a value must be unique; otherwise, it will throw an error.
+
+
+
+
+db.employees.find().pretty()
+    to list all data of a collection, and the pretty() method to format resulted data.
+
+
+db.<collection>.insert()
+
+e.g.
+
+db.employees.insert(
+    [
+        { 
+            firstName: "John3",
+            lastName: "King3",
+            email: "john3.king3@abc.com"
+        },
+        {       _id:2,
+                firstName: "Sachin",
+                lastName: "T",
+                email: "sachin.t@abc.com"
+        },
+        { 
+                firstName: "James",
+                lastName: "Bond",
+                email: "jamesb@abc.com"
+        }
+    ])

@@ -1,0 +1,14 @@
+show dbs
+
+
+use <database-name>
+    if there is this db, then enter the db;otherwise, create a db name <database-name>
+
+db.createCollection("<collection-name>")
+
+
+show collections 
+    commands to list all the collections in a database.
+
+db.<collection-name>.drop()
+    to remove this collection

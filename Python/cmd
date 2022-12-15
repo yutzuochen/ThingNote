@@ -1,7 +1,7 @@
 小技巧
 python命令默认调用的是 Python 2.x 开发环境，如果你习惯使用 Python 3.x，感觉每次输入python3命令有点麻烦，那么你可以修改配置，让python命令转而调用 Python 3.x 开发环境。具体命令如下：
-$sudo unlink /usr/bin/python
-$sudo ln -s /usr/bin/python3.8 /usr/bin/python
+sudo unlink /usr/bin/python
+sudo ln -s /usr/bin/python3.8 /usr/bin/python
 
 注意，第二条命令中 Python 3.x 的路径和版本一定要正确。
 

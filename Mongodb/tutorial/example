@@ -1,0 +1,20 @@
+{
+    "_id": ObjectId("32521df3f4948bd2f54218"),
+    "firstName": "John",
+    "lastName": "King",
+    "email": "john.king@abc.com",
+    "salary": "33000",
+    "DoB": new Date('Mar 24, 2011'),
+    "skills": [ "Angular", "React", "MongoDB" ],
+    "address": { 
+                "street":"Upper Street",
+                "house":"No 1",
+                "city":"New York",
+                "country":"USA"
+            }
+}
+
+
+
+graph in 
+tutorial\images\about document.png
