@@ -1,0 +1,9 @@
+[ Windows ]
+
+go forward                  |   alt + ]
+
+go back                     |   alt + [
+
+toggle primary side bar     |   ctl + b          (same as firefox)
+
+toggle tab key moves focus  |   ctl + `
