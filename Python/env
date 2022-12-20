@@ -1,0 +1,40 @@
+##git version
+version = '0.0.9.0'
+
+##flask api
+ip = '0.0.0.0'
+port = 5000
+
+##mongo setting
+mongo_ip = '10.99.120.4'
+mongo_port = 27117
+
+##db name 
+db_name = "yolo-show"
+
+##collection name
+###creator
+member_collection = 'pre_member'
+fan_collection = "pre_yolo_member_follow"
+visit_table_name = 'pre_member_visitor'
+block_table_name = 'pre_member_blocklist'
+lile_table_name = 'pre_member_collect'
+pre_yolo_tag = 'pre_yolo_tag'
+recommend_creator_hot = 'pre_recommend_creator_hot'
+recommend_creator = 'pre_recommend_creator'
+###post
+pre_yolo_post_file = "pre_yolo_post_file"
+pre_yolo_post_like_list = "pre_yolo_post_like_list"
+post_table = 'pre_yolo_statistics_post'
+recommend_post_hot = 'pre_recommend_post_hot'
+recommend_post = 'pre_recommend_post'
+pre_yolo_post = 'pre_yolo_post'
+pre_yolo_hottag = 'pre_yolo_hottag'
+
+#advertise
+yolo_advertise = 'pre_yolo_advertise'
+
+##final outpur file
+model_file_name = "model.pickle"
+
+#web = 'yoloshow.com:9010/ys'

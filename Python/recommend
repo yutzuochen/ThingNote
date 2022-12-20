@@ -1,0 +1,96 @@
+import os
+#os.chdir("C:/Users/jimmy.a/Desktop/project/yoloshowRecommend")
+#print(os.getcwd())
+import build_model
+import requests
+import pandas as pd
+import numpy as np
+import json
+import ast
+import importlib
+#import logging
+from dotenv import load_dotenv
+load_dotenv()
+from flask import Flask
+from flask import request
+#from flask_cors import CORS
+#from flask_cors import cross_origin
+app = Flask(__name__)
+#
+#CORS(app)
+
+@app.route('/version/')
+def route_version(): 
+    try:
+        ret = str(os.getenv('version'))         
+    except Exception as e:
+        log_file = open('./log.txt', 'w')
+        log_file.write("exception"+ str(e))
+        log_file.close()
+        ret = "error"
+    ret = json.dumps(ret, indent=4, ensure_ascii=False)
+    return ret
+
+@app.route('/gettagweight/')
+def route_gentagweight(): 
+    try:
+        importlib.reload(build_model)
+        mongo_ = build_model.mongo_related()
+        #score_df = mongo_.get_weight_tag()
+        result, score_df, post_score = mongo_.get_post_hottag()
+
+        tag = request.args.get('tag')
+        tag = ast.literal_eval(tag)
+
+        res_df = score_df[score_df.tag.isin(tag)]
+        res_df = res_df.sort_values(by='weight', ascending=False).reset_index(drop=True)  
+        res = []
+        for i in range(len(res_df)):
+            res.append({str(res_df.tag[i]):float(res_df.weight[i])})
+    except Exception as e:
+        log_file = open('./log.txt', 'w')
+        log_file.write("exception"+ str(e))
+        log_file.close()
+        res = {"res": "no data"}
+    ret = json.dumps(res, indent=4, ensure_ascii=False)
+    return ret
+
+
+@app.route('/genhot/')
+def route_genhot(): 
+    try:
+        importlib.reload(build_model)        
+        mongo_ = build_model.mongo_related()
+        score_df = mongo_.get_weight_tag()
+        res_df = score_df.copy()
+        res_df = res_df.sort_values(by='weight', ascending=False).reset_index(drop=True)  
+        res = {"res": list(res_df['name'])}
+    except Exception as e:
+        log_file = open('./log.txt', 'w')
+        log_file.write("exception"+ str(e))
+        log_file.close()        
+        res = {"res": "no data"}
+    ret = json.dumps(res, indent=4, ensure_ascii=False)
+    return ret
+
+@app.route('/genadvertisementTarget/')
+def route_genadvertisementTarget(): 
+    try:
+        importlib.reload(build_model)        
+        mongo_ = build_model.mongo_related() 
+        res = mongo_.get_postta_table(mongo_.get_post_table(mongo_.get_post_all_table()))  
+    except Exception as e:
+        log_file = open('./log.txt', 'w')
+        log_file.write("exception"+ str(e))
+        log_file.close()        
+        #logging.warning('error', exc_info=True)  # good            
+        res = {"res": "no data"}
+    ret = json.dumps(res, indent=4, ensure_ascii=False)
+    return ret
+
+
+if __name__ == "__main__":
+    IP = os.getenv('ip')
+    port = os.getenv('port')
+    app.run(host=str(IP),
+            port=int(port))

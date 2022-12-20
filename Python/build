@@ -1,0 +1,606 @@
+import os
+#os.chdir("C:/Users/jimmy.a/Desktop/project/yoloshowRecommend")
+#print(os.getcwd())
+import pandas as pd
+import numpy as np
+import pickle
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy import sparse
+from pymongo import MongoClient
+from tqdm import tqdm
+from dotenv import load_dotenv
+import logging
+import random
+import datetime
+import time
+import itertools
+from tqdm import tqdm
+import bson
+from bson.int64 import Int64
+logging.warning('logging level test')
+load_dotenv()
+pd.set_option('display.max_columns', 50)
+pd.set_option('display.max_rows', 50)
+
+def mongodb_to_dataframe(db):
+    
+    messages = []
+    for x in db.find():
+        messages.append(x)
+    res = pd.DataFrame(messages)
+    
+    return res
+
+def maxminscaler(series):
+    
+    max_s , min_s = series.max(),  series.min()
+    res = (series- min_s)/ (max_s- min_s)
+    
+    return res
+
+def get_now_time(day=0):
+    
+    time_ = datetime.datetime.now()- datetime.timedelta(days=day)
+    time_ = time.mktime(time_.timetuple())
+    
+    return time_
+
+
+class mongo_related(object):
+    def __init__(self):
+        
+        self.db_name = os.getenv('db_name')
+        self.mongo_ip = os.getenv('mongo_ip')
+        self.mongo_port = os.getenv('mongo_port')
+        self.member_collection = os.getenv('member_collection')
+        self.fan_collection = os.getenv('fan_collection')
+        self.client = MongoClient(str(self.mongo_ip), int(self.mongo_port))
+        self.my_db = self.client[self.db_name]
+        self.all_table_name = self.my_db.list_collection_names()
+        #
+        self.pre_yolo_tag = os.getenv('pre_yolo_tag')
+        self.visit_table_name = os.getenv('visit_table_name')
+        self.block_table_name = os.getenv('block_table_name')
+        self.lile_table_name = os.getenv('lile_table_name')
+        self.summary_col_name = ['UserId', 'ItemId']
+        self.post_table = os.getenv('post_table')
+        self.pre_yolo_post = os.getenv('pre_yolo_post')
+        
+        #post/ creator output collection
+        self.hottable = os.getenv('recommend_creator_hot')
+        self.algotable = os.getenv('recommend_creator')
+        self.hot_post_table = os.getenv('recommend_post_hot')        
+        self.algo_post_table = os.getenv('recommend_post')
+        self.yolo_advertise = os.getenv('yolo_advertise')
+        self.pre_yolo_hottag = os.getenv('pre_yolo_hottag')
+
+    def get_advertise_table(self, now_unix):
+        try:
+            dx = mongodb_to_dataframe(self.my_db[self.yolo_advertise])
+            
+            dx = dx[['memberId','postId', 'submissionDate', 'continueTime','totalFee']]
+            dx['continueTime'] = dx['continueTime'].astype('int64')
+            dx['enddate'] = dx['submissionDate']+ 86400* dx['continueTime']
+            dx['now'] = now_unix
+            dx = dx.sort_values(by='totalFee', ascending=False).reset_index(drop=True)
+            dx = dx[dx['now']  < dx['enddate']].reset_index(drop=True)               
+            return dx
+        except Exception as e:
+            logging.warning('error', exc_info=True)   
+        
+    def get_member_table(self):
+        try:
+            member = mongodb_to_dataframe(self.my_db[self.member_collection])
+            member["_id"] = member["_id"].astype("str")  
+            return member
+        except Exception as e:
+            logging.warning('error', exc_info=True)        
+            
+    def get_fan_table(self):
+        try:
+            df =  mongodb_to_dataframe(self.my_db[self.fan_collection])
+            if df.empty:
+                return df
+            else:
+                df = df[['memberId', 'followId']].reset_index(drop=True)
+                df.columns = self.summary_col_name
+                df["UserId"] = df["UserId"].astype("str")
+                df["ItemId"] = df["ItemId"].astype("str")    
+                df["IsFan"] = 1    
+        except Exception as e:
+            logging.warning('error', exc_info=True)     
+        return df    
+
+    def get_visit_table(self):
+        try:
+            df =  mongodb_to_dataframe(self.my_db[self.visit_table_name])
+            if df.empty:
+                return df
+            else:
+                df = df[['memberId', 'visitorId']].reset_index(drop=True)
+                df.columns = self.summary_col_name
+                df["UserId"] = df["UserId"].astype("str")
+                df["ItemId"] = df["ItemId"].astype("str")  
+                df["IsVisit"] = 1
+        except Exception as e:
+            logging.warning('error', exc_info=True)     
+        return df       
+
+    def get_block_table(self):
+        try:
+            df =  mongodb_to_dataframe(self.my_db[self.block_table_name])
+            if df.empty:
+                return df
+            else:
+                df = df[['memberId', 'blockListId']].reset_index(drop=True)
+                df.columns = self.summary_col_name
+                df["UserId"] = df["UserId"].astype("str")
+                df["ItemId"] = df["ItemId"].astype("str")  
+                df["Isblock"] = -1
+        except Exception as e:
+            logging.warning('error', exc_info=True)     
+        return df   
+
+    def get_like_table(self):
+        
+        df =  mongodb_to_dataframe(self.my_db[self.lile_table_name])
+        df = df[['memberId', 'authorId', 'postId']].reset_index(drop=True)
+        df_agg = df.groupby(['memberId','authorId'], as_index=False)['postId'].count()
+        
+        df_agg.columns = ['UserId', 'ItemId', 'Like']
+        df_agg["UserId"] = df_agg["UserId"].astype("str")
+        df_agg["ItemId"] = df_agg["ItemId"].astype("str")  
+        
+        return df_agg   
+
+    def get_postta_table(self, post):
+        
+        post_table = mongodb_to_dataframe(self.my_db[self.pre_yolo_post])
+        post_table = post_table[['_id', 'authorId', 'postTag', 'createdAt']]
+        post_table.columns = ['postId', 'authorId', 'postTag', 'createdAt']
+        post_table = post_table[~post_table['postTag'].isna()].reset_index(drop=True)
+
+        post_table = post_table[['postId', 'authorId','postTag']]
+        post_table.columns = ['postId', 'UserId','postTag']
+        
+        post_ = post[['UserId','ItemId', 'isViewed']].copy()
+        post_ = post_[post_.isViewed > 0 ].reset_index(drop=True)
+        post_.columns = ['UserId', 'postId', 'isViewed']
+        post_ = post_.merge(post_table[['postId', 'postTag']],
+                            on='postId', 
+                            how='left')
+        post_ = post_[['UserId', 'postId', 'postTag']]
+        post_table = pd.concat([post_table, 
+                                post_], axis=0)
+        post_table = post_table[~post_table.postTag.isna()].reset_index(drop=True)
+        post_table['len_tag'] = [len(i) for i in post_table['postTag']]    
+        post_table = post_table[post_table['len_tag'] > 0].reset_index(drop=True)
+        
+        result = pd.DataFrame()
+        for i in range(len(post_table)):
+            time_ = post_table.len_tag[i]
+            temp = pd.DataFrame({'MemberId':[post_table.UserId[i]]*time_,
+                                 'tag':list(post_table['postTag'][i]),})
+            result = pd.concat([result, temp], axis=0)
+        result['MemberId'] = [str(i) for i in result['MemberId']]
+        result = result.drop_duplicates().reset_index(drop=True)
+        df_agg = result.groupby('tag')['MemberId'].apply(list).reset_index(name="TargetMemberId")
+        df_agg['len'] = [len(i) for i in df_agg.TargetMemberId]
+        df_agg = df_agg.sort_values(by='len', ascending=False).reset_index(drop=True)
+      
+        return df_agg[['tag', 'TargetMemberId']].to_dict('records')
+    
+    def get_post_table(self, post_all):
+        
+        df = mongodb_to_dataframe(self.my_db[self.post_table])
+        df = df[df.postId.isin(post_all.postId)].reset_index(drop=True)
+        df = df[['memberId', 'postId', 'isViewed', 'isLiked','commentCount','shareCount', 'createdAt']]
+        df.columns = ['UserId', 'ItemId', 'isViewed', 'isLiked',\
+                      'commentCount','shareCount', 'createdAt']
+        df['ItemId'] = [str(i) for i in df['ItemId']]
+        
+        return df   
+
+    def get_post_hottag(self, time_threshold=get_now_time(7)):
+        
+        post_hottag = mongodb_to_dataframe(self.my_db[self.pre_yolo_post])
+        post_hottag = post_hottag[['_id', 'authorId', 'postTag', 'likeCount', 'commentCount',\
+                                 'shareCount','createdAt']]
+        post_hottag.columns = ['postId', 'authorId', 'postTag', 'likeCount','commentCount',\
+                              'shareCount','createdAt']
+        post_hottag = post_hottag[~post_hottag['postTag'].isna()].reset_index(drop=True)
+
+        post_hottag['len_tag'] = [len(i) for i in post_hottag['postTag']]   
+        post_hottag = post_hottag[post_hottag['createdAt'] > time_threshold].reset_index(drop=True)
+        post_hottag = post_hottag[post_hottag['len_tag'] > 0].reset_index(drop=True)
+        
+        result = pd.DataFrame()
+        for i in range(len(post_hottag)):
+            time_ = post_hottag.len_tag[i]
+            temp = pd.DataFrame({'authorId':[post_hottag.authorId[i]]*time_,
+                                 'postId':[post_hottag.postId[i]]*time_,
+                                 'tag':list(post_hottag['postTag'][i]),})
+            result = pd.concat([result, temp], axis=0)
+            
+        result = result.merge(post_hottag[['postId', 'likeCount',\
+                                           'commentCount','shareCount']],
+                              on='postId', how='left').drop_duplicates().reset_index(drop=True)
+        post_score = result[['authorId', 'postId', 'tag', 'likeCount', 'commentCount', 'shareCount']].copy()
+        post_score['likeCount'] = maxminscaler(post_score['likeCount'])
+        post_score['commentCount'] = maxminscaler(post_score['commentCount'])
+        post_score['shareCount'] = maxminscaler(post_score['shareCount'])
+        post_score['post_weight'] = (post_score['likeCount']+ post_score['commentCount']+ post_score['shareCount'])/3
+        post_score['post_weight'] = post_score['post_weight']/ post_score['post_weight'].sum()        
+        
+        score = result[['tag', 'likeCount', 'commentCount', 'shareCount']].copy()
+               
+        score['likeCount'] = maxminscaler(score['likeCount'])
+        score['commentCount'] = maxminscaler(score['commentCount'])
+        score['shareCount'] = maxminscaler(score['shareCount'])
+        score = score.groupby(['tag'], as_index=False).mean()
+
+        score['weight'] = (score['likeCount']+ score['commentCount']+ score['shareCount'])/3
+        score['weight'] = score['weight']/ score['weight'].sum()
+        score = score.sort_values(by='weight', ascending=False).reset_index(drop=True)
+
+        return result, score, post_score
+
+    def get_post_hot_tag_insert(self, result, score, post_score):
+        hot_tag = score[['tag', 'weight']].merge(result[['postId', 'tag']],
+                                                 on='tag',
+                                                 how='left')
+        hot_tag = hot_tag.merge(post_score[['authorId', 'postId', 'post_weight']],
+                                on='postId', 
+                                how='left')        
+        hot_tag = hot_tag.drop_duplicates().reset_index(drop=True)
+        hot_tag['createdAt'] = get_now_time()
+        hot_tag['updatedAt'] = get_now_time()
+        
+        hot_tag = hot_tag[['authorId', 'postId', 'tag', 'weight', 'post_weight','createdAt', 'updatedAt']]
+        hot_tag.columns = ['authorId', 'postId', 'tag', 'tagWeight', 'postWeight','createdAt', 'updatedAt']
+        
+        hot_tag = hot_tag.sort_values(by=['tagWeight', 'postWeight'], ascending=False).reset_index(drop=True)
+        hot_tag["authorId"] = [bson.objectid.ObjectId(i) for i in \
+                             hot_tag["authorId"] ] 
+        hot_tag["postId"] = [bson.objectid.ObjectId(i) for i in \
+                             hot_tag["postId"] ] 
+        return hot_tag
+    
+        
+    def get_post_all_table(self):
+        
+        post_all = mongodb_to_dataframe(self.my_db[self.pre_yolo_post])
+        post_all = post_all[['_id', 'authorId', 'postType', 'createdAt']]
+        post_all.columns = ['postId', 'authorId', 'postType', 'createdAt']
+        post_all = post_all.drop_duplicates()
+        
+        return post_all  
+
+
+    def check_db_insert(self, table_name, data):
+        
+        if table_name in self.all_table_name:    
+            mycol = self.my_db[table_name]
+            mycol.delete_many({})#drop()#
+        else:
+            mycol = self.my_db[table_name]
+        inset_dict = data.to_dict('records')
+        mycol.insert_many(inset_dict)  
+        
+        return mycol
+        
+
+    def get_weight_tag(self):
+        
+        score = mongodb_to_dataframe(self.my_db[self.pre_yolo_tag])
+        score = score[['name', 'scoreForPost', 'scoreForSearch', 'scoreForRegister']]
+        score['scoreForPost'] = maxminscaler(score['scoreForPost'])
+        score['scoreForSearch'] = maxminscaler(score['scoreForSearch'])
+        score['scoreForRegister'] = maxminscaler(score['scoreForRegister'])
+        score['weight'] = (score['scoreForPost']+ score['scoreForSearch']+ score['scoreForRegister'])/3
+        score['weight'] = score['weight']/ score['weight'].sum()
+        score = score.sort_values(by='weight', ascending=False).reset_index(drop=True)
+        
+        return score  
+
+    def update_int64(self, connect, update_col=["createdAt", "updatedAt"]):        
+        for i in update_col:
+            connect.update_many({},
+                              {"$set":{str(i):Int64(get_now_time())},
+                               })  
+
+class algo_related(object):
+    def __init__(self, member, fan, visit, block, like, post, advertisement):
+        
+        self.member = member
+        self.fan = fan
+        self.visit = visit
+        self.block = block
+        self.like = like
+        self.post = post
+        self.advertisement = advertisement
+        self.summary_col = ['UserId', 'ItemId']
+        self.ta_col = ['IsFan', 'IsVisit', 'Isblock', 'Like']
+        self.ta_post_col = ['isViewed', 'isLiked', 'commentCount','shareCount']
+    ##creator   
+    def get_base_table(self):
+
+        user_ = list(self.member['_id'])
+        item_ = user_
+        base = [user_, item_]
+        base_list = [i for i in itertools.product(*base)]
+        base_df = pd.DataFrame(base_list, 
+                               columns = self.summary_col)
+        
+        for i_df in [self.fan, self.visit, self.block, self.like]:
+            base_df = base_df.merge(i_df, 
+                                    how='left',
+                                    on=self.summary_col)
+        base_df = base_df[base_df[self.ta_col].isna().sum(axis=1) != len(self.ta_col)]
+        base_df = base_df.reset_index(drop=True)
+        base_df = base_df.fillna(0)
+        
+        for i_col in self.ta_col:
+            base_df[i_col] = maxminscaler(base_df[i_col])
+        base_df['score'] = base_df[self.ta_col].mean(axis=1)
+
+        return base_df, user_  
+   
+    def get_hot_table(self, df):
+        
+        df_agg = df[['ItemId', 'score']].groupby(['ItemId'], as_index=False).mean()
+        df_agg = df_agg.sort_values(by='score', ascending=False).reset_index(drop=True)
+        now_time = get_now_time()
+        hot_model_df = pd.DataFrame({"hotCreatorId":list(df_agg.ItemId), 
+                                     "score":list(df_agg.score),
+                                     'createdAt':Int64(now_time),
+                                     'updatedAt':Int64(now_time),})
+        hot_model_df["hotCreatorId"] = [bson.objectid.ObjectId(i) for i in \
+                                        hot_model_df["hotCreatorId"] ] 
+        
+        return hot_model_df
+    
+    def get_algo_result(self,df, hot_model_df, user_list):
+        
+        df_pvt = df[['UserId', 'ItemId', 'score']].pivot_table(values='score', 
+                                                                index='ItemId', 
+                                                                columns='UserId')
+        df_pvt = df_pvt.fillna(0)
+        model_list = list(df_pvt.index)       
+        A_sparse = sparse.csr_matrix(df_pvt)
+        similarities = cosine_similarity(A_sparse)
+        similarities_df = pd.DataFrame(similarities, 
+                                        index=model_list)
+        similarities_df.columns = model_list
+         
+        similarities_df["ItemId"] = model_list
+         
+        #insert to mongo
+        recommend_creator_df = similarities_df.melt(id_vars=['ItemId'],
+                                                     value_vars=model_list)
+    
+        recommend_creator_df.columns = ['creatorId', 'followId', 'score']
+        #
+        user_df = pd.DataFrame({'member':user_list})
+        user_df = user_df[~user_df.member.isin(recommend_creator_df.followId)].reset_index(drop=True)
+        if (not hot_model_df.empty) & (not user_df.empty):
+            hot = hot_model_df.copy()
+            if len(hot) >= 100:
+                hot = hot.iloc[:100,:].reset_index(drop=True)
+            else:
+                hot = hot.copy()
+            times = len(hot)
+            hot['hotCreatorId'] = hot['hotCreatorId'].astype('str')
+            add_df = pd.DataFrame()
+     
+            add_df['followId'] = list(user_df.member)* times
+            add_df = add_df.sort_values(by='followId', ascending=False).reset_index(drop=True)
+            add_df['creatorId'] = list(hot['hotCreatorId'])* len(user_df)
+            add_df['score'] = list(hot['score'])* len(user_df)
+            recommend_creator_df = pd.concat([recommend_creator_df,
+                                              add_df[['creatorId', 'followId', 'score']]],axis=0).reset_index(drop=True)
+            
+        else:
+            recommend_creator_df = recommend_creator_df.copy()
+            
+             
+
+        #
+        recommend_creator_df['creatorId'] = [bson.objectid.ObjectId(i) for i in \
+                                              recommend_creator_df['creatorId']]
+        recommend_creator_df['followId'] = [bson.objectid.ObjectId(i) for i in \
+                                             recommend_creator_df['followId']] 
+        #
+        now_time = get_now_time()
+        recommend_creator_df['createdAt'] = Int64(now_time)
+        recommend_creator_df['updatedAt'] = Int64(now_time)
+        recommend_creator_df = recommend_creator_df.sort_values(by=['followId', 'score'], ascending=False).reset_index(drop=True)
+
+        return recommend_creator_df
+
+    def get_base_post_table(self, time_threshold=get_now_time(7)):
+        
+        df = self.post
+        for i_col in self.ta_post_col:
+            df[i_col] = maxminscaler(df[i_col])
+        df['score'] = df[self.ta_post_col].mean(axis=1)
+        df = df[df.ItemId != 'nan'].reset_index(drop=True)
+        df = df[df.UserId != 'nan'].reset_index(drop=True)
+        df['endat'] = time_threshold
+        
+        return df  
+
+    def get_hot_post_table(self, data, post_all):
+        
+        adx = self.advertisement.copy()
+        adx = adx[['postId', 'memberId']]
+        adx.columns = ['ItemId', 'authorId']
+        adx['ItemId'] = [str(i) for i in adx['ItemId']]
+        
+        p_ = post_all.copy()
+        p_ = p_[['postId', 'authorId']]
+        p_.columns = ['ItemId', 'authorId']
+        p_ = pd.concat([p_, adx], axis=0)
+        p_ = p_.drop_duplicates().reset_index(drop=True)
+        p_['ItemId'] = [str(i) for i in p_['ItemId']]
+        
+        #time
+        now_time = get_now_time()
+        #advertisement
+        
+        #
+        df = data.copy()
+        df = df[df.endat <df.createdAt].reset_index(drop=True)
+
+        df['score_new'] = (20* df['isLiked']+ 10* df['isViewed']+ 3* df['commentCount'])/33        
+        
+        df_agg = df[['ItemId', 'score_new']].groupby(['ItemId'], as_index=False).mean()
+        df_agg = df_agg.sort_values(by='score_new', ascending=False).reset_index(drop=True)
+        df_agg = df_agg[~df_agg.ItemId.isin(adx.ItemId)].reset_index(drop=True)
+        df_agg['score'] = [i for i in range(1, len(df_agg)+1)]
+        
+        if adx.empty:
+            final = df_agg.copy()
+        else:
+            adx['score'] = [4+ (i-1)*6  for i in range(1,len(adx)+1)]
+            adx['ad'] = 0
+            df_agg['ad'] = 1
+            col_ = ['ItemId', 'score', 'ad']
+            final = pd.concat([df_agg[col_], adx[col_]], axis=0)
+            final = final.sort_values(by=['score', 'ad'], ascending=True).reset_index(drop=True)
+        final['score'] = [i for i in range(1,len(final)+1)]
+        final = final.merge(p_, 
+                            on='ItemId',
+                            how='left')    
+        hot_post_df = pd.DataFrame({"authorId":list(final.authorId),
+                                     "hotPostId":list(final.ItemId), 
+                                     "score":list(final.score),
+                                     'createdAt':Int64(now_time),
+                                     'updatedAt':Int64(now_time),})
+        hot_post_df["authorId"] = [bson.objectid.ObjectId(i) for i in \
+                                    hot_post_df["authorId"] ]         
+        hot_post_df["hotPostId"] = [bson.objectid.ObjectId(i) for i in \
+                                    hot_post_df["hotPostId"] ] 
+        return hot_post_df
+
+    def get_algo_post_result(self, df, post_all, fan):
+        
+        post_all.columns = ['ItemId', 'authorId', 'postType', 'createdAt']
+        df = df.merge(post_all[['ItemId', 'postType']],
+                      on='ItemId',
+                      how='left')
+        df = df[df.postType != 4].reset_index(drop=True)
+        df_pvt = df[['UserId', 'ItemId', 'score']].pivot_table(values='score', 
+                                                               index='ItemId', 
+                                                               columns='UserId')
+        df_pvt = df_pvt.fillna(0)
+        post_list = list(df_pvt.index)   
+        follow_list = list(df_pvt.columns)   
+        A_sparse = sparse.csr_matrix(df_pvt)
+        similarities = cosine_similarity(A_sparse)
+        similarities_df = pd.DataFrame(similarities, 
+                                        index=post_list)
+        similarities_df.columns = post_list
+        recommend_post_df = pd.DataFrame()
+        for i in tqdm(follow_list):
+            ta_list = list(df[df.UserId == i]['ItemId'])
+            similarities_df[similarities_df.index.isin(ta_list)]
+            recommend_post_df = pd.concat([recommend_post_df, 
+                                            pd.DataFrame({'postId':post_list,
+                                                          'followId': str(i),
+                                                          'score':similarities_df[similarities_df.index.isin(ta_list)].max(axis=0),
+                           })],axis=0)
+         
+        #
+        recommend_post_df['postId'] = [bson.objectid.ObjectId(i) for i in \
+                                              recommend_post_df['postId']]
+        recommend_post_df['followId'] = [bson.objectid.ObjectId(i) for i in \
+                                             recommend_post_df['followId']] 
+        #
+        now_time = get_now_time()
+        #recommend_post_df['createdAt'] = Int64(now_time)
+        recommend_post_df['updatedAt'] = Int64(now_time)
+        post_all.columns = ['postId', 'authorId', 'postType', 'createdAt']
+        recommend_post_df = recommend_post_df.merge(post_all[['postId', 'authorId', 'createdAt']],
+                                                   on='postId',
+                                                   how='left')
+         
+        fan.columns = ['authorId', 'followId', 'isFollow']
+        recommend_post_df = recommend_post_df.merge(fan,
+                                                    on = ['authorId', 'followId'],                                                   
+                                                    how='left')    
+        recommend_post_df['isFollow'] = recommend_post_df['isFollow'].fillna(0)
+        recommend_post_df['authorId'] = recommend_post_df['authorId'].astype('str')
+        recommend_post_df = recommend_post_df[recommend_post_df['authorId'] != 'nan'].reset_index(drop=True)
+        recommend_post_df['authorId'] = [bson.objectid.ObjectId(i) for i in \
+                                             recommend_post_df['authorId']]
+        recommend_post_df = recommend_post_df[['postId',  'authorId', 'followId','isFollow','score', \
+                                                'createdAt', 'updatedAt']]
+        recommend_post_df = recommend_post_df.sort_values(by=['isFollow', 'createdAt', 'score'],
+                                                          ascending=[False, False, False]).reset_index(drop=True)
+        return recommend_post_df    
+  
+
+if __name__ == '__main__':
+    try:
+        #read mongo related class
+        mongo_ = mongo_related()
+        time_threshold = get_now_time(7)
+        now_unix = get_now_time()
+
+
+        #read
+        member = mongo_.get_member_table()
+        fan = mongo_.get_fan_table()
+        visit = mongo_.get_visit_table()
+        block = mongo_.get_block_table()
+        like = mongo_.get_like_table()#kiki說like = 收藏
+        post_all = mongo_.get_post_all_table()
+
+        post = mongo_.get_post_table(post_all)
+        #advertisement
+        advertisement = mongo_.get_advertise_table(now_unix)
+        #
+        #post_table =  mongo_.get_postta_table(mongo_.get_post_table())
+        result, score, post_score = mongo_.get_post_hottag()
+        
+        hot_tag = mongo_.get_post_hot_tag_insert(result, score, post_score)
+
+        hot_tag_c = mongo_.check_db_insert(mongo_.pre_yolo_hottag,
+                                           hot_tag)        
+        mongo_.update_int64(hot_tag_c)                 
+        
+        
+        #algo module
+        algo_ = algo_related(member, fan, visit, block, like, post, advertisement)
+        #creator
+        df, user_list = algo_.get_base_table() 
+        ##get hot creator & insert mongo 
+        hot_model_df = algo_.get_hot_table(df)
+        hot_c = mongo_.check_db_insert(mongo_.hottable,
+                                       hot_model_df)
+        mongo_.update_int64(hot_c) 
+        ##get creator recommnd matrix & insert mongo  
+        recommend_creator_df = algo_.get_algo_result(df, hot_model_df, user_list)
+        creator_c = mongo_.check_db_insert(mongo_.algotable,
+                                           recommend_creator_df)
+        mongo_.update_int64(creator_c)        
+        #post
+        post_df = algo_.get_base_post_table(time_threshold)
+        ##get hot post & insert mongo 
+        hot_post_df = algo_.get_hot_post_table(post_df, post_all)
+        hot_post_c = mongo_.check_db_insert(mongo_.hot_post_table,
+                                            hot_post_df)
+        mongo_.update_int64(hot_post_c)                 
+        
+        
+        recommend_post_df = algo_.get_algo_post_result(post_df, post_all, fan)
+        recommend_post_df["isFollow"] = recommend_post_df["isFollow"].astype('int')
+        post_c = mongo_.check_db_insert(mongo_.algo_post_table,
+                                        recommend_post_df)
+        mongo_.update_int64(post_c)   
+        print("success to save the model")
+    except Exception as e:
+        log_file = open('./log.txt', 'w')
+        log_file.write("exception"+ str(e))
+        log_file.close()
