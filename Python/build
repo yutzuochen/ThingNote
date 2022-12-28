@@ -326,9 +326,10 @@ class algo_related(object):
     def get_base_table(self):
 
         user_ = list(self.member['_id'])
+        println("get_base_table,  user_: ", user_)
         item_ = user_
         base = [user_, item_]
-        base_list = [i for i in itertools.product(*base)]
+        base_list = [i for i in itertools.product(*base)] #itertools???
         base_df = pd.DataFrame(base_list, 
                                columns = self.summary_col)
         
@@ -584,13 +585,17 @@ if __name__ == '__main__':
         recommend_creator_df = algo_.get_algo_result(df, hot_model_df, user_list)
         creator_c = mongo_.check_db_insert(mongo_.algotable,
                                            recommend_creator_df)
+        # 打出算出的內容
+        print("recommend_creator_df: ", recommend_creator_df)
         mongo_.update_int64(creator_c)        
         #post
         post_df = algo_.get_base_post_table(time_threshold)
         ##get hot post & insert mongo 
         hot_post_df = algo_.get_hot_post_table(post_df, post_all)
+        print("hot_post_df: ")
         hot_post_c = mongo_.check_db_insert(mongo_.hot_post_table,
                                             hot_post_df)
+        # : _c是三小
         mongo_.update_int64(hot_post_c)                 
         
         

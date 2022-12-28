@@ -1,0 +1,5 @@
+[Initial]
+go mod init <project-name>
+
+[vendor]
+go mod vendor 的功能是将新增的依赖包自动写入当前项目的 vendor 目录

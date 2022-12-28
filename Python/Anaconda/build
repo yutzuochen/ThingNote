@@ -1,0 +1,18 @@
+[ create enviroment ]
+
+- general
+  
+conda create --name [env-name]
+
+- create with specific version of Python
+
+conda create -n python=3.X
+
+[ activate ]
+conda activate [env-name]
+    - i.g.
+    conda activate masonMosaic2
+
+
+[ deactivate ]  -> back to base
+conda deactivate
